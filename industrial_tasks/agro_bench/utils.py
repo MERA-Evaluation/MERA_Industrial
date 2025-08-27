@@ -11,6 +11,7 @@ def _normalize(s: str) -> str:
 
 
 def _exact_match(pred: str, gold: str) -> float:
+    """EM по нормализованным строкам."""
     return float(_normalize(pred) == _normalize(gold))
 
 
@@ -35,6 +36,8 @@ def _token_f1(pred: str, gold: str) -> float:
 
 def _to_golds(doc) -> List[str]:
     """
+    Приводим таргеты к списку строк: поддержка 'outputs' (строка с ';' или список), а также распространённые ключи 'answers'/'targets'/'target'.
+
     Унифицируем gold-ответы:
     - если doc["outputs"] строка — делим по ';'
     - если список — приводим к списку строк

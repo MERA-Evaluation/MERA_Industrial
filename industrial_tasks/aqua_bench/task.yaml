@@ -10,7 +10,7 @@ test_split: test
 training_split: train
 validation_split: null
 
-doc_to_text: "{{ instruction.format(**inputs).strip() }}"
+doc_to_text: "{{ instruction.replace('{{','{').replace('}}','}').format(**inputs).strip() }}"
 doc_to_target: "{{ outputs.strip() }}"
 
 num_fewshot: null
