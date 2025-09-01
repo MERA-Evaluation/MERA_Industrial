@@ -1,386 +1,290 @@
+from __future__ import annotations
+
 import argparse
-import glob
 import hashlib
 import json
-import os
+import re
 import shutil
+import tempfile
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from pathlib import Path
+from typing import Dict, Iterable, List, Optional, Tuple
 
-import datasets
-from lm_eval.loggers.evaluation_tracker import GeneralConfigTracker
-from lm_eval.utils import load_yaml_config, sanitize_model_name
-from tqdm.auto import tqdm
+try:
+    from lm_eval.utils import sanitize_model_name
+except Exception:
 
-CUSTOM_TASK_PATH = "./code_tasks/config.yaml"
-BENCHMARK_STORAGE: Optional[str] = load_yaml_config(CUSTOM_TASK_PATH).get(
-    "dataset_path"
-)
-_TASKS = {}
-DATASETS_TO_TRUNCATION = []
-INPUT_DATE_FORMAT = "%Y-%m-%dT%H-%M-%S.%f"
-SAMPLES_SUFFIX = "samples_"
-RESULTS_SUFFIX = "results_"
-INDEX_TO_GET = 0
-
-TASKS_WITH_RAW_RESPS = [
-    "realcode",
-    "realcodejava",
-    "codelintereval",
-    "javatestgen",
-    "rucodereviewer",
-    "yabloco",
-]
+    def sanitize_model_name(name: str) -> str:
+        return re.sub(r"[^a-zA-Z0-9_.-]+", "_", name).strip("_")
 
 
-def get_files_from_dir(dir_path):
-    f = []
-    for _, _, filenames in os.walk(dir_path):
-        for fn in filenames:
-            fn = os.path.join(dir_path, fn)
-            f.extend([fn])
-    return f
+ROOT = Path(__file__).resolve().parents[1]  # repo root
+TASKS_DIR = ROOT / "industrial_tasks"
 
 
-def save_json(obj, path):
-    with open(path, "w", encoding="utf-8") as file:
-        json.dump(obj, file, ensure_ascii=False, indent=4)
+def read_jsonl(path: Path) -> List[dict]:
+    with path.open("r", encoding="utf-8") as f:
+        return [json.loads(line) for line in f if line.strip()]
 
 
-def load_json(path):
-    with open(path, encoding="utf-8") as file:
-        text = json.loads(file.read().strip())
-    return text
+def write_jsonl(rows: Iterable[dict], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        for row in rows:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
-def load_jsonl(path):
-    with open(path, encoding="utf-8") as file:
-        result = [json.loads(line) for line in file.readlines()]
-    return result
+def file_sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 16), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
-def save_jsonl(file, path):
-    with open(path, "w", encoding="utf-8") as outfile:
-        for entry in file:
-            json.dump(entry, outfile, ensure_ascii=False)
-            outfile.write("\n")
+def now_stamp() -> str:
+    return datetime.now().strftime("%Y%m%d-%H%M%S")
 
 
-def extract_date(file_name: str) -> datetime:
-    extract_str_date = file_name.split(".json")[0].split("_")[-1]
-    date = datetime.strptime(extract_str_date, INPUT_DATE_FORMAT)
-    return date
-
-
-def register_task(cls):
-    _TASKS[cls.__name__] = cls
-    return cls
-
-
-class BaseTask:
-    @property
-    def src_name(self):
-        return self.__class__.__name__.lower()
-
-    @property
-    def dst_name(self):
-        return self.__class__.__name__
-
-    @property
-    def key(self):
-        if self._key is None:
-            if self.src_name in TASKS_WITH_RAW_RESPS:
-                self._key = "resps"
-            else:
-                self._key = "filtered_resps"
-        return self._key
-
-    @property
-    def take_first(self):
-        if self._take_first is None:
-            if self.src_name in TASKS_WITH_RAW_RESPS:
-                self._take_first = True
-            else:
-                self._take_first = False
-        return self._take_first
-
-    @property
-    def outputs_path(self):
-        filelist = glob.glob(
-            os.path.join(self.outputs_dir, f"samples_{self.src_name}_*.json*")
-        )
-        if not filelist:
-            # raise error if filelist is empty
-            raise FileNotFoundError(
-                "No samples to pack found, or there is an error in path processed"
-            )
-        # sorting filelist to get the latest
-        filelist = sorted(filelist, key=extract_date, reverse=True)
-        res = filelist[INDEX_TO_GET]
-        return res
-
-    @property
-    def submission_path(self):
-        return os.path.join(self.dst_dir, f"{self.dst_name}.json")
-
-    @staticmethod
-    def doc_to_meta(doc):
-        return doc["meta"]
-
-    def doc_to_id(self, doc):
-        return self.doc_to_meta(doc)["id"]
-
-    def load(self):
-        path = self.dataset_path or os.path.join(BENCHMARK_STORAGE, self.dst_name)
-        dataset = datasets.load_dataset(path=path)["test"]
-        examples = {}
-        for example in dataset:
-            doct_id = self.doc_to_id(example)
-            examples[doct_id] = example
-        return examples
-
-    def __init__(self, outputs_dir, dst_dir, dataset_path: Optional[str] = None):
-        self.outputs_dir = outputs_dir
-        self.dst_dir = dst_dir
-        self.dataset_path = dataset_path
-        self.dataset = self.load()
-        self._key = None
-        self._take_first = None
-
-
-class TextTask(BaseTask):
-    def convert(self):
-        submission = None
+def discover_task_ids(tasks_dir: Path) -> Dict[str, str]:
+    """
+    Build a map of {task_dir_name -> task_id} from task.yaml files.
+    """
+    mapping: Dict[str, str] = {}
+    for task_yaml in tasks_dir.glob("*/task.yaml"):
         try:
-            submission = self.outputs_to_submission(load_jsonl(self.outputs_path))
-            save_json(submission, self.submission_path)
-        except FileNotFoundError:
-            print(
-                "No samples to pack found, or there is an error in path processed. Src:",
-                self.src_name,
-            )
-        return submission
-
-    def outputs_to_submission(self, outputs):
-        res = []
-        for doc in outputs:
-            doc_id = int(self.doc_to_id(doc["doc"]))
-            resp = doc[self.key]
-            res.extend([self.doc_outputs_to_submission(doc_id, resp)])
-        return {"data": {"test": res}}
-
-    @staticmethod
-    def parse_doc(doc):
-        return doc[0]
-
-    def doc_outputs_to_submission(self, doc_id, outputs):
-        res = {
-            "outputs": outputs[0][0] if self.take_first else outputs[0],
-            "meta": {"id": doc_id},
-        }
-        return res
+            raw = task_yaml.read_text(encoding="utf-8")
+            m = re.search(r"(?m)^\s*task:\s*(?P<tid>[A-Za-z0-9_\-]+)\s*$", raw)
+            if not m:
+                continue
+            task_id = m.group("tid").strip()
+            task_dir = task_yaml.parent.name
+            mapping[task_dir] = task_id
+        except Exception:
+            continue
+    return mapping
 
 
-class MultiOutputTask(TextTask):
-    def doc_outputs_to_submission(self, doc_id, outputs):
-        res = {
-            "outputs": outputs,
-            "meta": {
-                "id": doc_id,
-            },
-        }
-        return res
+_TEXT_KEYS = (
+    "response",
+    "decoded",
+    "text",
+    "completion",
+    "generated",
+    "output",
+    "prediction",
+    "pred",
+)
+_ID_KEYS = ("id", "doc_id", "sample_id", "uuid", "qid", "question_id")
 
 
-@register_task
-class ruHumanEval(MultiOutputTask):
-    pass
+def _pick_first(d: dict, keys: Tuple[str, ...]) -> Optional[str]:
+    for k in keys:
+        if k in d and d[k] is not None:
+            v = d[k]
+            # unwrap lists like ["text"] or [{"text": "..."}]
+            if isinstance(v, list) and v:
+                v = v[0]
+            if isinstance(v, dict):
+                # grab common inner fields
+                for kk in ("text", "response", "decoded"):
+                    if kk in v and v[kk] is not None:
+                        return str(v[kk])
+                # or fallback to first non-null scalar
+                for kk, vv in v.items():
+                    if isinstance(vv, (str, int, float)) and vv is not None:
+                        return str(vv)
+                continue
+            return str(v)
+    return None
 
 
-@register_task
-class ruCodeEval(MultiOutputTask):
-    pass
+def normalize_samples(samples_path: Path) -> List[dict]:
+    """
+    Convert any lm-eval samples.jsonl schema into lines:
+      {"id": <id>, "response": <string>}
+    """
+    rows = []
+    for obj in read_jsonl(samples_path):
+        sid = _pick_first(obj, _ID_KEYS)
+        txt = _pick_first(obj, _TEXT_KEYS)
+
+        if txt is None:
+            choices = obj.get("choices")
+            if isinstance(choices, list) and choices:
+                ch = choices[0]
+                if isinstance(ch, dict) and "text" in ch:
+                    txt = str(ch["text"])
+
+        if txt is None and "decoded" in obj:
+            txt = str(obj["decoded"])
+
+        if sid is None:
+            seed = json.dumps(obj.get("input", obj), ensure_ascii=False, sort_keys=True)
+            sid = hashlib.md5(seed.encode("utf-8")).hexdigest()
+
+        if txt is None:
+            txt = ""
+
+        rows.append({"id": sid, "response": txt})
+    return rows
 
 
-@register_task
-class CodeLinterEval(MultiOutputTask):
-    pass
+@dataclass
+class FoundSamples:
+    task_dir: str
+    task_id: str
+    samples_path: Path
 
 
-@register_task
-class ruCodeReviewer(TextTask):
-    pass
+def find_all_samples(outputs_dir: Path, task_map: Dict[str, str]) -> List[FoundSamples]:
+    """
+    Locate every lm-eval samples file under outputs_dir.
+
+    Supports both:
+      - <...>/samples.jsonl
+      - <...>/samples_<task>_<timestamp>.jsonl
+    """
+    found: List[FoundSamples] = []
+
+    # 1) Collect all plausible sample files
+    candidate_paths = list(outputs_dir.rglob("samples.jsonl"))
+    candidate_paths += list(outputs_dir.rglob("samples_*.jsonl"))
+
+    if not candidate_paths:
+        return found
+
+    # 2) For each candidate, try to infer the task
+    for samples_path in candidate_paths:
+        fname = samples_path.name
+
+        # (a) Filename-based match: samples_{task}_<timestamp>.jsonl
+        task_dir: Optional[str] = None
+        if fname.startswith("samples_") and fname.endswith(".jsonl"):
+            base = fname[
+                len("samples_") : -len(".jsonl")
+            ]  # "<task>_<timestamp>" OR maybe just "<task>"
+            for tdir in task_map.keys():
+                prefix = f"{tdir}_"
+                if base == tdir or base.startswith(prefix):
+                    task_dir = tdir
+                    break
+
+        # (b) Path contains a known task folder
+        if task_dir is None:
+            for part in samples_path.parts:
+                if part in task_map:
+                    task_dir = part
+                    break
+
+        # (c) Fallback: parent-of-parent (usual harness layout)
+        if task_dir is None:
+            try:
+                candidate = samples_path.parent.parent.name
+                if candidate in task_map:
+                    task_dir = candidate
+            except Exception:
+                pass
+
+        if task_dir is None:
+            continue
+
+        task_id = task_map[task_dir]
+        found.append(
+            FoundSamples(task_dir=task_dir, task_id=task_id, samples_path=samples_path)
+        )
+
+    latest_by_task: Dict[str, FoundSamples] = {}
+    for fs in found:
+        key = fs.task_id
+        cur = latest_by_task.get(key)
+        if (
+            cur is None
+            or fs.samples_path.stat().st_mtime > cur.samples_path.stat().st_mtime
+        ):
+            latest_by_task[key] = fs
+
+    return list(latest_by_task.values())
 
 
-@register_task
-class JavaTestGen(TextTask):
-    pass
+def make_submission_zip(
+    outputs_dir: Path,
+    dst_dir: Path,
+    model_args: str,
+) -> Path:
+    task_map = discover_task_ids(TASKS_DIR)
+    samples = find_all_samples(outputs_dir, task_map)
+    if not samples:
+        raise RuntimeError(
+            f"No samples.jsonl found under {outputs_dir}. "
+            "Did you run lm_eval with --log_samples and correct --output_path?"
+        )
 
+    model_tag = sanitize_model_name(model_args or "unknown_model")
+    stamp = now_stamp()
+    work_dir = Path(tempfile.mkdtemp(prefix="mera_submit_"))
+    submit_dir = work_dir / f"submission_{model_tag}_{stamp}"
+    submit_dir.mkdir(parents=True, exist_ok=True)
 
-@register_task
-class RealCode(TextTask):
-    pass
+    # 1) Normalize and write per-task files
+    normalized_files: List[Path] = []
+    for s in samples:
+        out_path = submit_dir / f"{s.task_id}.jsonl"
+        rows = normalize_samples(s.samples_path)
+        write_jsonl(rows, out_path)
+        normalized_files.append(out_path)
 
-
-@register_task
-class RealCodeJava(TextTask):
-    pass
-
-
-@register_task
-class YABLoCo(TextTask):
-    pass
-
-
-@register_task
-class stRuCom(TextTask):
-    pass
-
-
-@register_task
-class UnitTests(TextTask):
-    pass
-
-
-@register_task
-class CodeCorrectness(TextTask):
-    pass
-
-
-@register_task
-class AgroBench(TextTask):
-    @property
-    def src_name(self):
-        return "agro_bench"
-
-
-@register_task
-class AquaBench(TextTask):
-    @property
-    def src_name(self):
-        return "aqua_bench"
-
-
-@register_task
-class MedBench(TextTask):
-    @property
-    def src_name(self):
-        return "med_bench"
-
-
-def get_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--outputs_dir", type=str, help="lm-evaluation-harness outputs")
-    parser.add_argument(
-        "--dst_dir",
-        type=str,
-        default="submission/",
-        help="dir to save files for submission",
+    # 2) Meta
+    meta = {
+        "created_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "model_args": model_args,
+        "outputs_dir": str(outputs_dir),
+        "tasks": sorted({s.task_id for s in samples}),
+        "files": {p.name: file_sha256(p) for p in normalized_files},
+        "tool": "log_to_submission.py",
+        "tool_version": "1.0.0",
+    }
+    (submit_dir / "submission_meta.json").write_text(
+        json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    parser.add_argument(
-        "--model_args",
-        type=str,
-        default="",
-        help="Comma separated string arguments for model, e.g. `pretrained=EleutherAI/pythia-160m,dtype=float32`",
+
+    # 3) Zip
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    zip_path = dst_dir / f"{submit_dir.name}.zip"
+    shutil.make_archive(
+        zip_path.with_suffix(""), "zip", root_dir=work_dir, base_dir=submit_dir.name
     )
-    res = parser.parse_known_args()[0]
-    return res
 
+    # Cleanup temp folder
+    try:
+        shutil.rmtree(work_dir)
+    except Exception:
+        pass
 
-def pack_submission_logs(outputs_dir: str, dst_dir: str):
-    if os.path.isdir(outputs_dir):
-        zip_dir = os.path.join(dst_dir, "logs_public")
-        os.makedirs(zip_dir, exist_ok=True)
-        files_to_pack = glob.glob(os.path.join(outputs_dir, "*.json*"))
-        for file_path in files_to_pack:
-            file_name = os.path.split(file_path)[-1].lower()
-            if file_name.startswith((SAMPLES_SUFFIX, RESULTS_SUFFIX)):
-                # copy with possible truncation of outputs
-                copy_and_truncate(file_path, zip_dir)
-            else:
-                print("Unknown file {fn}".format(fn=file_path))
-        zip_path = shutil.make_archive(zip_dir, "zip", zip_dir)
-        shutil.rmtree(zip_dir)
-        print("Logs to add with public submission stored at", zip_path)
-    else:
-        raise ValueError(f"{outputs_dir} is not directory")
-
-
-def create_submission(outputs_dir, dst_dir):
-    os.makedirs(dst_dir, exist_ok=True)
-    for task_name, task_cls in tqdm(_TASKS.items(), total=len(_TASKS)):
-        print("Process task", task_name)
-        task = task_cls(outputs_dir=outputs_dir, dst_dir=dst_dir)
-        _ = task.convert()
-        print("---------------------")
-    print("Packing logs for public submission...")
-    pack_submission_logs(outputs_dir, dst_dir)
-    zip_path = shutil.make_archive(dst_dir, "zip", dst_dir)
-    print("Submission stored at", zip_path)
     return zip_path
 
 
-def preprocess_outputs_dir(outputs_dir: str, model_args: str) -> str:
-    """
-    User either provides "full" path to dir with jsons or provides path to
-    folder of upper level and model_args to define subdir with jsons.
-    If user explicitly provides model_args, parse it and use to define subdir.
-    Otherwise, return the initial outputs_dir with no changes.
-    """
-    if model_args:
-        # get model_name cleared of "pretrained=" and everything after first comma
-        model_name = GeneralConfigTracker._get_model_name(model_args)
-        # use func to find the name of subdir from model_name
-        subdirectory = sanitize_model_name(model_name)
-        # join paths
-        full_path = os.path.join(outputs_dir, subdirectory)
-        return full_path
-    return outputs_dir
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        description="Pack MERA submission archive from lm-eval logs."
+    )
+    p.add_argument(
+        "--outputs_dir", required=True, help="Path passed as --output_path to lm_eval"
+    )
+    p.add_argument("--dst_dir", required=True, help="Where to put the ZIP")
+    p.add_argument(
+        "--model_args", default="", help="Exact --model_args string you used"
+    )
+    return p.parse_args()
 
 
-def truncate_outputs(path):
-    """
-    Function that takes `path` to file, reads it and substitute all 'arg_0' values
-    of each item 'arguments' keys with their sha256 codes.
-    """
-    if path.endswith("json"):
-        data = load_json(path)
-    elif path.endswith("jsonl"):
-        data = load_jsonl(path)
-    else:
-        raise ValueError("Undefined format of {directory} file".format(directory=path))
-    for line in data:
-        for key in line["arguments"]:
-            if isinstance(line["arguments"][key]["arg_0"], str):
-                line["arguments"][key]["arg_0"] = hashlib.sha256(
-                    line["arguments"][key]["arg_0"].encode()
-                ).hexdigest()
-            else:
-                line["arguments"][key]["arg_0"] = hashlib.sha256(
-                    line["arguments"][key]["arg_0"][0].encode()
-                ).hexdigest()
-    return data
-
-
-def copy_and_truncate(file_path, zip_dir):
-    """
-    For datasets in DATASETS_TO_TRUNCATION truncates the outputs in logs while copying
-    the file into zip_dir. For other files just make copy.
-    """
-    for file in DATASETS_TO_TRUNCATION:
-        if file in os.path.split(file_path)[-1]:
-            data = truncate_outputs(file_path)
-            name = os.path.split(file_path)[-1]
-            save_jsonl(data, os.path.join(zip_dir, name))
-            return
-    shutil.copy2(file_path, zip_dir)
-    return
-
-
-def main():
-    args = get_args()
-    outputs_dir = preprocess_outputs_dir(args.outputs_dir, args.model_args)
-    create_submission(outputs_dir, args.dst_dir)
+def main() -> None:
+    args = parse_args()
+    outputs_dir = Path(args.outputs_dir).resolve()
+    dst_dir = Path(args.dst_dir).resolve()
+    zip_path = make_submission_zip(outputs_dir, dst_dir, args.model_args)
+    print(f"[OK] Submission ZIP created: {zip_path}")
 
 
 if __name__ == "__main__":
