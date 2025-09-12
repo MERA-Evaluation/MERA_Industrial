@@ -9,11 +9,9 @@ from typing import Any, Dict, List, Optional
 
 import datasets
 import numpy as np
-from tqdm.auto import tqdm
-
 from lm_eval.loggers.evaluation_tracker import GeneralConfigTracker
 from lm_eval.utils import load_yaml_config, sanitize_model_name
-
+from tqdm.auto import tqdm
 
 CUSTOM_TASK_PATH = "./code_tasks/config.yaml"
 BENCHMARK_STORAGE = "MERA-evaluation"
@@ -77,7 +75,7 @@ class BaseTask:
     @property
     def dst_name(self):
         return self.__class__.__name__
-    
+
     @property
     def key(self):
         if self._key is None:
@@ -112,18 +110,14 @@ class BaseTask:
 
     def load(self):
         path = self.dataset_path or os.path.join(BENCHMARK_STORAGE, self.dst_name)
-        dataset = datasets.load_dataset(path=path)[
-            "test"
-        ]
+        dataset = datasets.load_dataset(path=path)["test"]
         examples = {}
         for example in dataset:
             doct_id = self.doc_to_id(example)
             examples[doct_id] = example
         return examples
 
-    def __init__(
-        self, outputs_dir, dst_dir, dataset_path: Optional[str] = None
-    ):
+    def __init__(self, outputs_dir, dst_dir, dataset_path: Optional[str] = None):
         self.outputs_dir = outputs_dir
         self.dst_dir = dst_dir
         self.dataset_path = dataset_path
@@ -155,14 +149,14 @@ class TextTask(BaseTask):
     @staticmethod
     def parse_doc(doc):
         return doc[0]
-    
+
     def doc_outputs_to_submission(self, doc_id, outputs):
         res = {
             "outputs": outputs[0],
             "meta": {"id": doc_id},
         }
         return res
-    
+
 
 class MultiOutputTask(TextTask):
     def doc_outputs_to_submission(self, doc_id, outputs):
@@ -174,6 +168,7 @@ class MultiOutputTask(TextTask):
         }
         return res
 
+
 @register_task
 class Agro_Bench(TextTask):
 
@@ -184,7 +179,7 @@ class Agro_Bench(TextTask):
 
 @register_task
 class Aqua_Bench(TextTask):
-    
+
     @property
     def dst_name(self):
         return "ruTXTAquaBench"
@@ -192,7 +187,7 @@ class Aqua_Bench(TextTask):
 
 @register_task
 class Med_Bench(TextTask):
-    
+
     @property
     def dst_name(self):
         return "ruTXTMedQFundamental"
