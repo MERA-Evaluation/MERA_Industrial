@@ -1,6 +1,9 @@
 # MERA_Industrial
 Отраслевая ветка MERA
 
+## Requirements
+* python>=3.11
+
 ## How to run
 use script `run.sh`
 or directly:
