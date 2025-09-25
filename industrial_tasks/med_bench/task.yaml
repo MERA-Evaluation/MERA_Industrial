@@ -1,10 +1,9 @@
 output_type: generate_until
-tag: [mera, mera_gen, mera_all, mera_industrial]
+tag: [mera_medicine]
 
 task: med_bench
 
 dataset_path: MERA-evaluation/ruTXTMedQFundamental
-dataset_name: null
 
 test_split: test
 training_split: train
@@ -17,10 +16,6 @@ num_fewshot: null
 
 generation_kwargs:
   do_sample: false
-  until:
-    - "\n\n"
-    - "###"
-    - "</s>"
 
 filter_list:
   - name: "scoring"
