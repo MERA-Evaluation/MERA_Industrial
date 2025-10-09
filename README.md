@@ -49,8 +49,8 @@ First, you need to clone the MERA_CODE repository and load the submodule:
 
 ```bash
 ### Go to the folder where the repository will be cloned ###
-mkdir mera_ndustrial
-cd mera_ndustrial
+mkdir mera_industrial
+cd mera_industrial
 
 ### Clone & install core libs ###
 git clone --recurse-submodules https://github.com/MERA-Evaluation/MERA_Industrial.git
