@@ -4,7 +4,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/mera-industrial-logo.svg">
     <source media="(prefers-color-scheme: light)" srcset="docs/mera-industrial-logo-black.svg">
-    <img alt="MERA Code" src="docs/mera-code-logo-white.png" style="max-width: 100%;">
+    <img alt="MERA Industrial" src="docs/mera-industrial-logo.svg" style="max-width: 100%;">
   </picture>
 </p>
 
