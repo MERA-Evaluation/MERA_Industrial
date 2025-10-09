@@ -129,7 +129,6 @@ def process_json_with_term_dict(json_data, term_dict):
         for key in field_path:
             if key in current_dict:
                 current_dict = current_dict[key]
-
         # If current_value is a dict with language keys
         if isinstance(current_value, dict):
             processed_value = {}
@@ -148,12 +147,10 @@ def process_json_with_term_dict(json_data, term_dict):
 
     def recursive_process(obj, path=None):
         path = path or []
-
         if isinstance(obj, dict) and not "en" in obj:
             return {k: recursive_process(v, path + [k]) for k, v in obj.items()}
         else:
             return process_field(obj, path)
-
     return recursive_process(json_data)
 
 
