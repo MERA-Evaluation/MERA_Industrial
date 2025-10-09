@@ -1,4 +1,4 @@
-# MERA Code
+# MERA Industrial
 
 <p align="center">
   <picture>
