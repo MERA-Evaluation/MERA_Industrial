@@ -1,0 +1,36 @@
+output_type: generate_until
+tag: [mera_medicine]
+
+task: med_bench
+
+dataset_path: MERA-evaluation/ruTXTMedQFundamental
+
+test_split: test
+training_split: train
+validation_split: null
+
+doc_to_text: "{{ instruction.format(**inputs).strip() }}"
+doc_to_target: "{{ outputs.strip() }}"
+
+num_fewshot: null
+
+generation_kwargs:
+  do_sample: false
+
+filter_list:
+  - name: "scoring"
+    filter:
+      - function: remove_whitespace_and_nones
+      - function: "take_first"
+
+process_results: !function utils.process_results
+metric_list:
+  - metric: em
+    aggregation: mean
+    higher_is_better: true
+  - metric: f1
+    aggregation: mean
+    higher_is_better: true
+
+metadata:
+  version: 1.0

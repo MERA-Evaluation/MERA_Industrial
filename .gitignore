@@ -21,3 +21,9 @@
 # 🤗 cache, 🏝️ Python environment, maybe something else...
 *.cache/
 .ipynb_checkpoints
+.vscode-server
+*results/
+*test/
+
+# test dataset
+*test.jsonl
