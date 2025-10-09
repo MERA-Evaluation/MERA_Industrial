@@ -120,6 +120,14 @@ lm_eval \
     --apply_chat_template \  # use chat template of the model
     --fewshot_as_multiturn \  # along with apply_chat_template, matters only for num_fewshot > 0
     --tasks agro_bench,aqua_bench,med_bench  # eval tasks
+  
+### pack logs into zip archive
+python scripts/log_to_submission.py \
+    --outputs_dir ./results/Qwen2.5-0.5B-Instruct \
+    --dst_dir ./results/Qwen2.5-0.5B-Instruct \
+    --model_args pretrained=Qwen/Qwen2.5-0.5B-Instruct,dtype=bfloat16
+
+### there would appear results/Qwen2.5-0.5B-Instruct_submission.zip archive ready for submission
 ```
 
 </details>
