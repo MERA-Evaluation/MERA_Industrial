@@ -108,20 +108,10 @@ class BaseTask:
     def doc_to_id(self, doc):
         return self.doc_to_meta(doc)["id"]
 
-    def load(self):
-        path = self.dataset_path or os.path.join(BENCHMARK_STORAGE, self.dst_name)
-        dataset = datasets.load_dataset(path=path)["test"]
-        examples = {}
-        for example in dataset:
-            doct_id = self.doc_to_id(example)
-            examples[doct_id] = example
-        return examples
-
     def __init__(self, outputs_dir, dst_dir, dataset_path: Optional[str] = None):
         self.outputs_dir = outputs_dir
         self.dst_dir = dst_dir
         self.dataset_path = dataset_path
-        self.dataset = self.load()
         self._key = None
 
 
