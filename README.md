@@ -61,10 +61,7 @@ cd MERA_Industrial
 
 **Remote Scoring**: quick setup for cloud-based scoring — install only core dependencies, run the evaluation, and submit the resulting ZIP archive to our website to get the score. 
 
-<details>
-<summary>
-Install lm-eval library...
-</summary>
+Install lm-eval library and optional packages for evaluations:
 
 ```bash
 ### Install lm-eval ###
@@ -80,8 +77,6 @@ pip install -e ".[api]"
 ### Go to MERA_Industrial folder ###
 cd ../
 ```
-
-</details>
 
 ### Running evaluations
 
