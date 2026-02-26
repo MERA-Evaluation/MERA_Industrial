@@ -19,7 +19,7 @@
 </p>
 
 <h2 align="center">
-    <p> MERA Induscrial: A Unified Framework for Evaluating Industrial tasks.
+    <p> MERA Industrial: A Unified Framework for Evaluating Industrial Tasks.
 </p>
 </h2>
 
@@ -27,9 +27,9 @@
 
 **MERA Industrial** brings together a domain-specific collection of evaluation tasks under one roof. Built on top of the [Language Model Evaluation Harness](https://github.com/EleutherAI/lm-evaluation-harness) (v0.4.9), it enables researchers and practitioners to:
 
-- **Compare models** on identical tasks and metrics
-- **Reproduce results** with fixed prompts and few-shot settings
-- **Submit** standardized ZIP archives for leaderboard integration
+- **Compare models** on identical tasks and metrics.
+- **Reproduce results** with fixed prompts and few-shot settings.
+- **Submit** standardized ZIP archives for leaderboard integration.
 
 
 ## 🔍 Datasets Overview
@@ -61,7 +61,7 @@ cd MERA_Industrial
 
 **Remote Scoring**: quick setup for cloud-based scoring — install only core dependencies, run the evaluation, and submit the resulting ZIP archive to our website to get the score. 
 
-Install lm-eval library and optional packages for evaluations:
+Install the lm-eval library and optional packages for evaluations:
 
 ```bash
 ### Install lm-eval ###
@@ -80,7 +80,7 @@ cd ../
 
 ### Running evaluations
 
-We have prepared the script that launches evaluations via `lm-eval` library and packs the evaluation logs into zip archive:
+We have prepared the script that launches evaluations via the `lm-eval` library and packs the evaluation logs into a zip archive:
 
 ```bash
 ### Run evaluation and pack logs ###
@@ -147,10 +147,10 @@ MERA_CODE/
 Follow these steps to see your model on the Leaderboard:
 
 1. **Run Remote Scoring**  
- Evaluate the benchmark in the **Remote Scoring** regime (see [🛠 Getting Started](#evaluation) above). Pay attention that for **private** tasks we do not provide golden answers, so no local scoring is provided.
- > You’ll end up with a logs folder **and** a ready-to-submit zip archive like `Qwen2.5-0.5B-Instruct_submission.zip`.
+ Evaluate the benchmark in the **Remote Scoring** regime (see [🛠 Getting Started](#evaluation) above). Please note that for **private** tasks, we do not provide golden answers, so no local scoring is provided.
+ > You’ll end up with a logs folder **and** a ready-to-submit zip archive, such as `Qwen2.5-0.5B-Instruct_submission.zip`.
 
-2. **Submit on the website**  
+2. **Submit to the website**  
  Head over to [Create Submission](https://mera.a-ai.ru/ru/industrial/submits/create), upload the archive, and move on to the form.
 
 3. **Fill in Model Details**  
