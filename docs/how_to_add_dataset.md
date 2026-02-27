@@ -259,7 +259,7 @@ MERA_Industrial/
   ├── README_ru.md
   ├── dataset_meta.json
   ├── upload_to_HF.ipynb         # Script you used to upload the dataset on HF
-└── scripts/                     # In case there are some scipts for the task
+└── scripts/                     # In case there are some scripts for the task
 ```
 
 Напишите финальное письмо на почту `mera@a-ai.ru`:
