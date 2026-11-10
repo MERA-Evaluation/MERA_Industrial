@@ -27,3 +27,7 @@
 
 # test dataset
 *test.jsonl
+
+# local dataset packs and the HF upload script
+tmp/
+scripts/upload_hf_final.py
